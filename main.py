@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
-app = FastAPI(title="Totalome Scraper (Stealth)", version="0.5.0")
+app = FastAPI(title="Totalome Scraper (Stealth + GPU Disabled)", version="0.5.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,7 +80,7 @@ async def consent_and_unhide(page):
             b.style.visibility = 'visible';
             b.style.opacity = '1';
             b.style.overflow = 'auto';
-        """)
+        """ )
     except:
         pass
 
@@ -93,7 +93,18 @@ async def new_browser():
     pw = await async_playwright().start()
     proxy_url = os.getenv("PROXY_URL") or os.getenv("HTTP_PROXY")
     ua = random.choice(UA_ROTATION)
-    browser = await pw.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+    browser = await pw.chromium.launch(
+        headless=True,
+        args=[
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            "--disable-webgl",
+            "--disable-webgl2",
+            "--disable-features=IsolateOrigins,site-per-process,WebGPU"
+        ]
+    )
     context_kwargs = dict(user_agent=ua, locale="en-US", timezone_id="America/New_York")
     if proxy_url:
         context_kwargs["proxy"] = {"server": proxy_url}
@@ -169,7 +180,7 @@ async def extract_wayfair(page):
 
 @app.get('/')
 def root():
-    return {'message':'Totalome scraper (stealth) ready', 'docs':'/docs', 'health':'/health'}
+    return {'message':'Totalome scraper (stealth + GPU disabled) ready', 'docs':'/docs', 'health':'/health'}
 
 @app.get('/health')
 def health():
@@ -203,14 +214,16 @@ async def search(q: str = Query(...), retailer: str = Query('homedepot'), debug:
             except:
                 pass
 
+        # capture simple page state for debug
+        title = None; ready=None
+        try: title = await page.title()
+        except: pass
+        try: ready = await page.evaluate('document.readyState')
+        except: pass
+
         await browser.close(); await pw.stop()
 
         if debug:
-            title = await page.title() if page else None
-            try:
-                ready = await page.evaluate('document.readyState')
-            except:
-                ready = None
             return {'request': {'q': q, 'retailer': retailer, 'url': url},
                     'page': {'title': title, 'readyState': ready},
                     'logs': logs[:15], 'count': len(items), 'sample': items[:3], 'screenshot': shot_b64}
