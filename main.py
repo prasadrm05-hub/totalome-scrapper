@@ -1,14 +1,15 @@
 
 import os, re, asyncio, random, base64
-from typing import List, Optional
+from typing import Optional
 from urllib.parse import quote_plus
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
-app = FastAPI(title="Totalome Scraper (Stealth + GPU Disabled)", version="0.5.1")
+app = FastAPI(title="Totalome Scraper (Stealth + GPU Disabled + Image Mode)", version="0.5.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -180,7 +181,7 @@ async def extract_wayfair(page):
 
 @app.get('/')
 def root():
-    return {'message':'Totalome scraper (stealth + GPU disabled) ready', 'docs':'/docs', 'health':'/health'}
+    return {'message':'Totalome scraper (stealth + image mode) ready', 'docs':'/docs', 'health':'/health'}
 
 @app.get('/health')
 def health():
@@ -199,6 +200,7 @@ async def search(q: str = Query(...), retailer: str = Query('homedepot'), debug:
         await smart_scroll(page, steps=10, pause_ms=300)
         await asyncio.sleep(random.uniform(0.6, 1.2))
 
+        # scraper
         if retailer.lower() == 'homedepot':
             items = await extract_homedepot(page)
         elif retailer.lower() == 'wayfair':
@@ -206,15 +208,15 @@ async def search(q: str = Query(...), retailer: str = Query('homedepot'), debug:
         else:
             items = []
 
-        shot_b64 = None
+        # screenshot modes
+        png = None
         if debug or shot:
             try:
                 png = await page.screenshot(full_page=True)
-                shot_b64 = 'data:image/png;base64,' + base64.b64encode(png).decode()
             except:
-                pass
+                png = None
 
-        # capture simple page state for debug
+        # capture minimal page state
         title = None; ready=None
         try: title = await page.title()
         except: pass
@@ -223,10 +225,24 @@ async def search(q: str = Query(...), retailer: str = Query('homedepot'), debug:
 
         await browser.close(); await pw.stop()
 
+        # If shot=true & not debug -> return image directly
+        if shot and not debug and png:
+            return Response(content=png, media_type="image/png")
+
+        # Otherwise return JSON (and embed data URL if debug wants it)
         if debug:
-            return {'request': {'q': q, 'retailer': retailer, 'url': url},
-                    'page': {'title': title, 'readyState': ready},
-                    'logs': logs[:15], 'count': len(items), 'sample': items[:3], 'screenshot': shot_b64}
-        return items
+            screenshot_data = None
+            if png:
+                screenshot_data = 'data:image/png;base64,' + base64.b64encode(png).decode()
+            return JSONResponse({
+                'request': {'q': q, 'retailer': retailer, 'url': url},
+                'page': {'title': title, 'readyState': ready},
+                'logs': logs[:15],
+                'count': len(items),
+                'sample': items[:3],
+                'screenshot': screenshot_data
+            })
+
+        return JSONResponse(items)
     except Exception as e:
-        raise HTTPException(status_code=500, detail={'error': str(e), 'url': url, 'logs': logs[:10]})
+        return JSONResponse(status_code=500, content={'error': str(e), 'url': url, 'logs': logs[:10]})
