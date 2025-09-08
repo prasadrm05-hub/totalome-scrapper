@@ -1,10 +1,1 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
-env
-venv
-ENV
-*.git
-*.md
+__pycache__/\n*.pyc\n.git\n
