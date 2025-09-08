@@ -1,3 +1,1 @@
-__pycache__/
-*.pyc
-.git
+__pycache__/\n*.pyc\n.git\n
